@@ -64,11 +64,11 @@ class classifier(nn.Module):
 
         Parameters
         ----------
-        x: torch.Tensor, input features.
+        x: tensor, input features.
 
         Returns
         -------
-        x: torch.Tensor, output results.
+        x: tensor, output results.
         """
         if self.num_layers > 1:
             if self.norm:
@@ -82,7 +82,17 @@ class classifier(nn.Module):
         return x
 
 class RSNEncoder(nn.Module):
+    """
+    Description
+    -----------
+    A metapath context encoder which uses RSNs.
 
+    Parameters
+    ----------
+    in_dim: int, input size.
+    out_dim: int, output size.
+    rnn_type: str, the base RNN model name. (Default: "gru")
+    """
     def __init__(self, in_dim, out_dim, rnn_type="gru"):
         super(RSNEncoder, self).__init__()
         if rnn_type == "rnn":
@@ -95,11 +105,30 @@ class RSNEncoder(nn.Module):
         self.w2 = nn.Linear(out_dim, out_dim, bias=False)
 
     def reset_parameters(self):
+        """
+        Description
+        -----------
+        Reinitialize learnable parameters.
+        """
         self.rnn.reset_parameters()
         self.w1.reset_parameters()
         self.w2.reset_parameters()
 
     def forward(self, x, hn=None):
+        """
+        Description
+        -----------
+        Forward propagation calculation for the encoder.
+
+        Parameters
+        ----------
+        x: tensor, input feature sequence.
+        hn: tensor or None, initial hidden state
+
+        Returns
+        -------
+        hn: tensor, output results.
+        """
         for i in range(len(x)):
             hn = self.rnn(x[i], hn)
             if i % 2 == 1:
@@ -110,12 +139,13 @@ class SemanticFusion(nn.Module):
     """
     Description
     -----------
-    Metapath attention layer.
+    Semantic fusion layer.
 
     Parameters
     ----------
-    in_dim: int, the input feature.
+    in_dim: int, the input feature size.
     hid_dim: int, the metapath attention vector size. (Default: 128)
+    batch: bool, whether average over the batch. (Default: False)
     """
     def __init__(self, in_dim, hid_dim=128, batch=False):
         super(SemanticFusion, self).__init__()
@@ -144,11 +174,11 @@ class SemanticFusion(nn.Module):
 
         Parameters
         ----------
-        h: Tensor, the input feature tensor.
+        h: tensor, the input feature tensor.
 
         Returns
         -------
-        out: Tensor, the output feature tensor.
+        out: tensor, the output feature tensor.
         """
         if self.batch:
             w = self.project(h).mean(0)                    # (num_metapath, 1)

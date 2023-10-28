@@ -57,12 +57,6 @@ if __name__ == "__main__":
     }
     # read the graph dataset
     filepath = os.path.join(os.path.dirname(__file__), "data/DBLP/")
-    metapath_info = {
-        "apa": [["paper"], [("author", "ap", "paper"), ("paper", "pa", "author")]],
-        "apvpa": [["paper", "venue", "paper"],  [("author", "ap", "paper"), ("paper", "pv", "venue"), ("venue", "vp", "paper"), ("paper", "pa", "author")]],
-        "aptpa":[["paper", "term", "paper"], [("author", "ap", "paper"), ("paper", "pt", "term"), ("term", "tp", "paper"), ("paper", "pa", "author")]],
-    }
-    metapath_dict = {"apa_i": "apa", "apvpa_i": "apvpa", "aptpa_i": "aptpa"}
     dataset = DBLPHeteroGraph(root=filepath)
     metapath_sis = {"apa_i": [("author", "ap", "paper"), ("paper", "pa", "author")], 
                 "apvpa_i": [("author", "ap", "paper"), ("paper", "pv", "venue"), ("venue", "vp", "paper"), ("paper", "pa", "author")],
@@ -73,6 +67,12 @@ if __name__ == "__main__":
     dataset.transform(metapath_sis, metapath_mp, coef=params["coef"])
     dataset.g = dgl.edge_type_subgraph(dataset.g, etypes=list(metapath_sis.keys())+list(metapath_mp.keys()))
     # create the model
+    metapath_info = {
+        "apa": [["paper"], [("author", "ap", "paper"), ("paper", "pa", "author")]],
+        "apvpa": [["paper", "venue", "paper"],  [("author", "ap", "paper"), ("paper", "pv", "venue"), ("venue", "vp", "paper"), ("paper", "pa", "author")]],
+        "aptpa":[["paper", "term", "paper"], [("author", "ap", "paper"), ("paper", "pt", "term"), ("term", "tp", "paper"), ("paper", "pa", "author")]],
+    }
+    metapath_dict = {"apa_i": "apa", "apvpa_i": "apvpa", "aptpa_i": "aptpa"}
     model = HETCAN(
             tf_dict=dataset.tf_dict, 
             emb_ndict=dataset.emb_ndict,
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     # set the optimizer parameters
     opt = {"opt_name": params["opt_name"], "lr": params["lr"], "weight_decay": params["weight_decay"]}
     # set the local sampling parameters
-    sampling_params = {"num_layers": params["num_layers"][0], "neighbor_sampling": params["neighbor_sampling"], "prob": "prob"}
+    sampling_params = {"num_layers": params["num_layers"][0], "neighbor_sampling": params["neighbor_sampling"], "prob": None}
     # train the model
     trainer = HetCANTrainer(
         dataset = dataset,

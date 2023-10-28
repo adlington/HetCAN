@@ -29,10 +29,19 @@ def str_to_tensor(s):
     return torch.FloatTensor([float(i) for i in s.split(",")])
 
 class DBLPHeteroGraph:
+    """
+    Description
+    -----------
+    Read the heterogeneous graph.
 
+    Parameters
+    ----------
+    root: str, the data directory.
+    """
     def __init__(self, root):
         self.root = root
-        self.raw_dir = osp.join(root, "raw")
+        # self.raw_dir = osp.join(root, "raw")
+        self.raw_dir = root
         self.processed_dir = osp.join(root, "processed")
         self.info()
         self.process()
@@ -57,7 +66,7 @@ class DBLPHeteroGraph:
         """
         Description
         -----------
-        Read graph data and get the metapath-based neighbor graph.
+        Read graph data and get the heterogeneous graph.
         """
         if not osp.exists(self.processed_dir):
             os.mkdir(self.processed_dir)
@@ -120,6 +129,11 @@ class DBLPHeteroGraph:
             self.save(processed_file_graph, processed_file_info)
 
     def feat_info(self):
+        """
+        Description
+        -----------
+        Get the initial feature vector size and the number of node/edge embeddings. 
+        """
         self.tf_dict = {}
         self.emb_ndict = {}
         self.emb_edict = {}
@@ -135,6 +149,17 @@ class DBLPHeteroGraph:
                 self.emb_edict[etype] = 1
 
     def transform(self, metapath_sis, metapath_mp, coef=5):
+        """
+        Description
+        -----------
+        Transform the graph and add the virtual edges between the metapath-based neighbors as well as along each metapath instance.
+
+        Parameters
+        ----------
+        metapath_sis: dict[str, list], the keys represent the names of virtual edges between the metapath-based neighbors and the values represent the canonical edge types of metapaths.
+        metapath_mp: dict[str, list], the keys represent the names of virtual edges along each metapath instance and the values represent the canonical edge types of metapaths.
+        coef: int, the coefficient for multi-metapath neighbors.
+        """
         transformed_graph_file = osp.join(self.processed_dir, "dblp_mpgraph.bin")
         if osp.exists(transformed_graph_file):
             self.load(transformed_graph_file)
@@ -190,14 +215,14 @@ class AddSISProb(BaseTransform):
     """
     Description
     -----------
-    Add new edges to an input graph based on given metapaths, and calculate the semantic importance sampling probability (SIS) for each node.
+    Add new edges to an input graph based on given metapaths.
 
     Parameters
     ----------
     metapaths: dict[str, list], the metapaths to add, mapping a metapath name to a metapath.
     keep_orig_edges: bool, whether to keep the edges of the original graph.
-    coef: int, adjust coefficient for multi semantics.
-    attr_name: str, the edge attribute name which represents the SIS probability.
+    coef: int, coefficient for multi-metapath neighbors.
+    attr_name: str, the edge attribute name for distinguishing the multi-metapath neighbors from the single-metapath neighbors.
     """
     def __init__(self, metapaths, keep_orig_edges=True, coef=5, attr_name="prob"):
         self.metapaths = metapaths
@@ -233,7 +258,7 @@ class AddSISProb(BaseTransform):
                 compose_adj = meta_adj
             else:
                 compose_adj = compose_adj + meta_adj
-        # calculate the SIS probability and add the metapath neighbor graph
+        # multiply the coefficient and add the metapath neighbor graph
         for meta_etype, metapath in self.metapaths.items():
             tmp_adj = compose_adj.multiply(adj_dict[meta_etype])
             coef_adj = (tmp_adj>1).astype("int").multiply(tmp_adj)
@@ -249,7 +274,7 @@ class AddSISProb(BaseTransform):
             new_g = update_graph_structure(g, data_dict, copy_edata=True)
         else:
             new_g = update_graph_structure(g, data_dict, copy_edata=False)
-        # add the SIS probability to the edge attribute
+        # add the edge attribute
         for meta_etype, edata in edata_dict.items():
             new_g.edges[meta_etype].data[self.attr_name] = edata
 
@@ -264,7 +289,7 @@ class MPGraph(BaseTransform):
 
     Parameters
     ----------
-    metapaths: dict[str, list], the metapaths to add, mapping a metapath name to a metapath.
+    metapaths: dict[str, list], the metapaths to add, mapping an edge name to a metapath.
     keep_orig_edges: bool, whether to keep the edges of the original graph.
     """
     def __init__(self, metapaths, keep_orig_edges=True):

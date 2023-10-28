@@ -7,7 +7,7 @@ from sklearn.metrics import roc_curve, f1_score, roc_auc_score
 import dgl
 from dgl.dataloading import DataLoader
 from .utils import Earlystopping
-from .sampler import CoMpSampler
+from .sampler import HetCANSampler
 
 
 def get_optimizer(model, opt_name, lr, weight_decay):
@@ -69,11 +69,12 @@ class HetCANTrainer:
     """
     Description
     -----------
-    GNN model trainer.
+    HetCAN model trainer.
 
     Parameters
     ----------
     dataset: dataset instance, the dataset of the input graph.
+    metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
     model: model instance, the model for training.
     opt: dict[str, any], the parameters of the optimizer.
     criterion: nn.Module, loss function.
@@ -81,7 +82,7 @@ class HetCANTrainer:
     batch_size: list[int], the batch size for training and evaluation. (Default: [128,128])
     lr_decay: dict[str, any] or None, the parameters of the lr_scheduler, if None, do not use lr decay. (Default: None)
     multi_nodes: bool, whether is the heterogeneous graph. (Default: True)
-    device: torch.device or None, if None, use cpu training. (Default: None)
+    device: device instance or None, if None, use cpu training. (Default: None)
     """
     def __init__(self, dataset, metapath_dict, model, opt, criterion, sampling_params, batch_size=[128, 128], lr_decay=None, device=None):
         self.dataset = dataset
@@ -101,22 +102,13 @@ class HetCANTrainer:
         """
         Description
         -----------
-        Get the sampler which can create the MFGs. If neighbor sampling is required at training stage, we will adopt MultiLayerNeighborSampler. Otherwise, MultiLayerFullNeighborSampler will be used.
-
-        Parameters
-        ----------
-        mode: str, the sampler will be used for training or else.
+        Get the sampler which can create the MFGs.
 
         Returns
         -------
         sampler: BlockSampler, the sampler instance.
         """
-        # if mode == "train" and self.sampling_params["neighbor_sampling"]:
-        #     sampler = NeighborSampler([20]*self.sampling_params["num_layers"])
-        # else:
-        #     sampler = MultiLayerFullNeighborSampler(self.sampling_params["num_layers"])
-        # return sampler
-
+        # sample certain metapath_based neighbors for each layer
         sampling_dict = {}
         for meta_etype in self.dataset.g.canonical_etypes:
             if meta_etype[1] in self.metapath_dict.keys():
@@ -124,7 +116,7 @@ class HetCANTrainer:
             else:
                 sampling_dict[meta_etype] = 0
         sample_num = [sampling_dict]*self.sampling_params["num_layers"]
-        sampler = CoMpSampler(metapath_dict=self.metapath_dict, fanouts=sample_num, prob=self.sampling_params["prob"])
+        sampler = HetCANSampler(metapath_dict=self.metapath_dict, fanouts=sample_num, prob=self.sampling_params["prob"])
 
         return sampler
 
@@ -179,7 +171,7 @@ class HetCANTrainer:
         Returns
         -------
         state: dict[str, any], the information of the best model.
-        test_evaluator: dict[str, float], the evaluation results on the test set.
+        result: dict[str, float], the evaluation results on the test set.
         """
         es = Earlystopping(early_stopping)
         best = 0

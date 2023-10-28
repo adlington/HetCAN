@@ -8,6 +8,22 @@ from .base import classifier, RSNEncoder, SemanticFusion
 
 
 def groupby_mean(values, labels, max_len):
+    """
+    Description
+    -----------
+    MeanPooling for metapath instance embeddings.
+
+    Parameters
+    ----------
+    values: tensor, the metapath instance embeddings.
+    labels: tensor, the edge ids for each metapath instance embedding.
+    max_len: int, the max number of metapath instances.
+
+    Returns
+    -------
+    means: tensor, the metapath context embeddings.
+    counts: tensor, the number of metapth instances for each pair of metapath neighbors.
+    """
     label = labels.view((labels.shape[0],)+(1,)*(len(values.shape)-1))
     counts = torch.zeros((max_len,)+(1,)*(len(values.shape)-1), dtype=torch.float32)
     sums = torch.zeros((max_len,)+values.shape[1:], dtype=torch.float32)
@@ -18,7 +34,28 @@ def groupby_mean(values, labels, max_len):
     return means, counts
 
 class CoattnConv(nn.Module):
+    """
+    Description
+    -----------
+    The co-attentive aggregation layer.
 
+    Parameters
+    ----------
+    tf_dict: dict[ntype/etype, int], initial node/edge feature sizes.
+    emb_ndict: dict[ntype, int], the numbers of initial node embeddings without initial node features.
+    emb_edict: dict[etype, int], the numbers of initial edge embeddings without initial edge features.
+    in_dim: int, input size.
+    out_dim: int, output size.
+    target: str, target node type name.
+    metapath_info: dict[etype, list[list[ntype], list[etype]]], the node and edge type names for each metapath.
+    metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
+    activation: list[func], activation funtions.
+    feat_dropout: float, feature dropout rate.
+    attn_dropout: float, attention dropout rate.
+    residual: bool, whether to use residual connections.
+    num_heads: int, number of heads for multi-head attention.
+    is_first: bool, whether is the first layer.
+    """
     def __init__(self,
                 tf_dict, 
                 emb_ndict,
@@ -95,6 +132,21 @@ class CoattnConv(nn.Module):
             layer.reset_parameters()
 
     def merge_feat(self, nfeat_dict, efeat_dict):
+        """
+        Description
+        -----------
+        Merge the initial features and the embeddings.
+
+        Parameters
+        ----------
+        nfeat_dict: dict[ntype, tensor], initial node features.
+        efeat_dict: dict[etype, tensor], initial edge features.
+
+        Returns
+        -------
+        nfeat_new: dict[ntype, tensor], node features.
+        efeat_new: dict[etype, tensor], edge features.
+        """
         nfeat_new = {}
         efeat_new = {}
         for k, v in nfeat_dict.items():
@@ -109,6 +161,24 @@ class CoattnConv(nn.Module):
         return nfeat_new, efeat_new
 
     def forward(self, g, h, nfeat_dict, efeat_dict):
+        """
+        Description
+        -----------
+        Forward computation.
+
+        Parameters
+        ----------
+        g: DGLHeteroGraph or List[MFG], the graph data.
+        h: dict[ntype, tensor], the features of the target node type.
+        nfeat_dict: dict[ntype, tensor], the initial node features.
+        efeat_dict: dict[etype, tensor], the initial edge features.
+
+        Returns
+        -------
+        out: tensor, the output tensor.
+        mean_m: tensor, the mean values of attention scores for multi-metapath neighbors.
+        mean_s: tensor, the mean values of attention scores for single-metapath neighbors.
+        """
         nfeat_new, efeat_new = self.merge_feat(nfeat_dict, efeat_dict)
         with g.local_scope():
             if isinstance(h, tuple):
@@ -117,6 +187,7 @@ class CoattnConv(nn.Module):
                 inputs_src, inputs_dst = h, h[:g.num_dst_nodes()]
             else:
                 inputs_src = inputs_dst = h
+            # feature transformation
             if self.is_first:
                 inputs_src = self.hetlinear.linears[self.target](inputs_src)  
                 inputs_dst = self.hetlinear.linears[self.target](inputs_dst)
@@ -125,7 +196,7 @@ class CoattnConv(nn.Module):
             h_dst = self.feat_dropout(inputs_dst).view(-1, self.num_heads, self.out_dim)  # (num_dst_node, num_heads, out_dim)
             g.srcdata.update({"es": h_src})
             g.dstdata.update({"ed": h_dst})
-
+            # metapath instance encoding
             h_inst = {}
             for etype in self.metapath_info.keys():
                 mid_nfeat_list, mid_efeat_list = self.get_midfeat_list(g, etype, nfeat_new, efeat_new)  # (num_edge, num_heads*out_dim)
@@ -133,13 +204,14 @@ class CoattnConv(nn.Module):
                 mid_nfeat_list = [inputs_src[edges[0]]]+mid_nfeat_list+[inputs_dst[edges[1]]]
                 assert len(mid_nfeat_list) - len(mid_efeat_list) == 1
                 h_inst[etype] = self.mp_encoder(mid_nfeat_list, mid_efeat_list, etype)  # (num_edge, num_heads, out_dim)
-
+            # calculate the metapath-specific embeddings
             h_list = []
             mean_m_list = []
             mean_s_list = []
             for etype in self.metapath_dict.keys():
                 elist = []
                 meta_etype = g.to_canonical_etype(etype)
+                # calculate local attention scores
                 for inst_etype in self.metapath_info.keys():
                     h_mean, e = self.edge_score(g, h_inst[inst_etype], etype, inst_etype)  # (num_edge, num_heads, out_dim), (num_edge, num_heads, 1)
                     if inst_etype == self.metapath_dict[etype]:
@@ -147,34 +219,34 @@ class CoattnConv(nn.Module):
                         elist.append((1-torch.sigmoid(self.delta))*self.activation0(e))
                     else:
                         elist.append(torch.sigmoid(self.delta)*self.activation0(e))
-
+                # calculate global attention scores
                 edge_score = torch.cat(elist, dim=-1).sum(dim=-1, keepdim=True)  # (num_edge, num_heads, 1)
                 # compute attention weights
                 sub_g = g.edge_type_subgraph(etypes=[meta_etype])
                 g.edata["a"] = {meta_etype: self.attn_dropout(dglnn.functional.edge_softmax(sub_g, edge_score))}  # (num_edge, num_heads,1)
+                # neighbor aggregation
                 g.update_all(message_func=fn.u_mul_e("es", "a", "msg"), reduce_func=fn.sum("msg", "ft"), etype=etype)
                 g.update_all(message_func=lambda x: {"msg2": x.data["h"]*x.data["a"]}, reduce_func=fn.sum("msg2", "ft2"),  etype=etype)  # (num_dst_node, num_heads, out_dim)
                 rst = self.fc_src[etype](g.dstdata["ft"]) + self.fc_edge[etype](g.dstdata["ft2"])  # (num_dst_node, num_heads, out_dim)
-
                 if self.residual:
                     rst = rst + h_dst  # (num_dst_node, num_heads, out_dim)
                 if self.activation1:
                     rst = self.activation1(rst)
                 rst = rst.view(rst.shape[0], -1)  # (num_dst_node, num_heads*out_dim)
                 h_list.append(rst)
-
+                # pairwise attention scores
                 g.edata["score"] = {meta_etype: edge_score.mean(dim=1)}  # (num_edge, 1)
                 g.update_all(message_func=lambda x: {"msg_m": (x.data["prob"]>1) * (x.data["score"].squeeze())}, reduce_func=fn.sum("msg_m", "m_sum"), etype=etype)
                 g.update_all(message_func=lambda x: {"msg_mc": (x.data["prob"]>1).to(torch.float32)}, reduce_func=fn.sum("msg_mc", "m_cnt"), etype=etype)
                 g.update_all(message_func=lambda x: {"msg_s": (x.data["prob"]==1) * (x.data["score"].squeeze())}, reduce_func=fn.sum("msg_s", "s_sum"), etype=etype)
                 g.update_all(message_func=lambda x: {"msg_sc": (x.data["prob"]==1).to(torch.float32)}, reduce_func=fn.sum("msg_sc", "s_cnt"), etype=etype)
-
                 mean_m = g.dstdata["m_sum"]/torch.where(g.dstdata["m_cnt"]>0, g.dstdata["m_cnt"], 1)  # (num_dst_node,)
                 mean_s = g.dstdata["s_sum"]/torch.where(g.dstdata["s_cnt"]>0, g.dstdata["s_cnt"], 1)  # (num_dst_node,)
+                # ignore results wihout both types
                 ind = (g.dstdata["m_cnt"]>0)*(g.dstdata["s_cnt"]>0)
                 mean_m_list.append(mean_m[ind])
                 mean_s_list.append(mean_s[ind])
-
+            # combine all metapath results
             out = torch.stack(h_list, dim=1)  # (batch_size, num_metapath, num_heads*out_dim)
             mean_m = torch.cat(mean_m_list, dim=0)  # (num_node,)
             mean_s = torch.cat(mean_s_list, dim=0)  # (num_node,)
@@ -182,6 +254,23 @@ class CoattnConv(nn.Module):
             return out, mean_m, mean_s
 
     def get_midfeat_list(self, g, etype, nfeat_dict, efeat_dict):
+        """
+        Description
+        -----------
+        Generate the node embedding sequence and the edge embedding sequence for metapath instances.
+
+        Parameters
+        ----------
+        g: DGLHeteroGraph or List[MFG], the graph data.
+        etype: str, the edge type name for metapath instances.
+        nfeat_dict: dict[ntype, tensor], the node features.
+        efeat_dict: dict[etype, tensor], the edge features.
+
+        Returns
+        -------
+        mid_nfeat_list: list[tensor], the node embedding sequence.
+        mid_efeat_list: list[tensor], the edge embedding sequence.
+        """
         # transform and concatenate the features of the specific node and edge types along the metapaths
         mid_nfeat_list = []
         mid_efeat_list = []
@@ -217,6 +306,21 @@ class CoattnConv(nn.Module):
         return mid_nfeat_list, mid_efeat_list
 
     def mp_encoder(self, nfeat, efeat, etype):
+        """
+        Description
+        -----------
+        The metapath instance encoder.
+
+        Parameters
+        ----------
+        nfeat: list[tensor], the node embedding sequence.
+        efeat: list[tensor], the edge embedding sequence.
+        etype: str, the edge type name.
+
+        Returns
+        -------
+        out: tensor, metpath instance embeddings.
+        """
         feat = []
         for i in range(len(nfeat)):
             feat.append(nfeat[i])
@@ -228,6 +332,24 @@ class CoattnConv(nn.Module):
         return out
 
     def edge_score(self, g, h, etype, inst_etype):
+        """
+        Description
+        -----------
+        Calculate the metapath context embeddings and the local attention scores.
+
+        Parameters
+        ----------
+        g: DGLHeteroGraph or List[MFG], the graph data.
+        h: tensor, the metapath instance embeddings.
+        etype: str, the edge type name for metapath neighbors.
+        inst_etype: str, the edge type name for metapath instances.
+
+        Returns
+        -------
+        h_mean: tensor, the metapath context embeddings.
+        e: tensor, the edge embedding sequence.
+        """
+        # calculate the metapath context embeddings
         u0, v0 = g.edges(etype=inst_etype)
         u1, v1, eids = g.edge_ids(u=u0, v=v0, return_uv=True, etype=etype)
         inst_eids = g.edge_ids(u=u1, v=v1, return_uv=True, etype=inst_etype)[-1]
@@ -236,6 +358,7 @@ class CoattnConv(nn.Module):
         h_mean, counts = groupby_mean(h[has_edge], eids, g.num_edges(etype=etype))  # (num_edge, num_heads, out_dim),  (num_edge, 1, 1)
         mp_ind = counts>0  # (num_edge, 1, 1)
         h_mean = self.feat_dropout(h_mean)  # (num_edge, num_heads, out_dim)
+        # calculate the local attention scores
         u, v = g.edges(etype=etype)
         e1 = (g.srcdata["es"][u]*g.dstdata["ed"][v]).sum(dim=-1, keepdim=True)  # (num_edge, num_heads, 1)
         e1 = torch.sigmoid(self.eta[inst_etype])*e1  # (num_edge, num_heads, 1)
@@ -245,7 +368,29 @@ class CoattnConv(nn.Module):
         return h_mean, e
 
 class HETCANLayer(nn.Module):
+    """
+    Description
+    -----------
+    The HetCAN layer.
 
+    Parameters
+    ----------
+    tf_dict: dict[ntype/etype, int], initial node/edge feature sizes.
+    emb_ndict: dict[ntype, int], the numbers of initial node embeddings without initial node features.
+    emb_edict: dict[etype, int], the numbers of initial edge embeddings without initial edge features.
+    hid_dim: int, hidden size.
+    out_dim: int, output size.
+    target: str, target node type name.
+    metapath_info: dict[etype, list[list[ntype], list[etype]]], the node and edge type names for each metapath.
+    metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
+    activation: list[func], activation funtions.
+    feat_dropout: float, feature dropout rate.
+    attn_dropout: float, attention dropout rate.
+    residual: bool, whether to use residual connections.
+    num_heads: int, number of heads for multi-head attention.
+    is_first: bool, whether is the first layer.
+    is_last: bool, whether is the last layer.
+    """
     def __init__(self,
                 tf_dict, 
                 emb_ndict,
@@ -264,8 +409,10 @@ class HETCANLayer(nn.Module):
                 is_last = False
                 ):
         super(HETCANLayer, self).__init__()
+        # co-attentive aggregation
         self.conv = CoattnConv(tf_dict, emb_ndict, emb_edict, hid_dim, hid_dim, target, metapath_info, metapath_dict,
                 activation, feat_dropout, attn_dropout, residual, num_heads, is_first)
+        # semanticc fusion
         self.sem_fusion = SemanticFusion(hid_dim*num_heads, hid_dim, batch=False)
         if is_last:
             self.fc = nn.Linear(hid_dim*num_heads, out_dim)
@@ -274,11 +421,34 @@ class HETCANLayer(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
+        """
+        Description
+        -----------
+        Reinitialize learnable parameters.
+        """
         self.conv.reset_parameters()
         self.sem_fusion.reset_parameters()
         self.fc.reset_parameters()
 
     def forward(self, g, h, nfeat_dict, efeat_dict):
+        """
+        Description
+        -----------
+        Forward computation.
+
+        Parameters
+        ----------
+        g: DGLHeteroGraph or List[MFG], the graph data.
+        h: dict[ntype, tensor], the features of the target node type.
+        nfeat_dict: dict[ntype, tensor], the initial node features.
+        efeat_dict: dict[etype, tensor], the initial edge features.
+
+        Returns
+        -------
+        out: tensor, the output tensor.
+        mean_m: tensor, the mean values of attention scores for multi-metapath neighbors.
+        mean_s: tensor, the mean values of attention scores for single-metapath neighbors.
+        """
         out, mean_m, mean_s = self.conv(g, h, nfeat_dict, efeat_dict)
         out = self.sem_fusion(out)
         out = out.view(out.shape[0], -1)
@@ -289,23 +459,25 @@ class HETCAN(nn.Module):
     """
     Description
     -----------
-    The proposed HIDAM model.
+    The HetCAN model.
 
     Parameters
     ----------
-    in_dim_dict: dict[str, int], input feature size of different node and edge types.
-    hid_dim: int, the embedding size.
-    out_dim: int, the output size.
-    metapath_info: dict[str, dict[str, any]], the index and feature size along each metapath.
-    target: str, the target node type.
-    ntype_dict: dict[int, str], node type dict where key and value represent the index and the name of the node type respectively.
-    etype_dict: dict[int, str], edge type dict where key and value represent the index and the name of the edge type respectively.
-    activation: func, activation function. (Default: F.relu)
-    dropout: float, dropout rate in the instance-level fusion layer and the MLP classifier. (Default: 0.0)
-    l2_norm: bool, whether to use L2 normalization in the instance-level fusion layer. (Default: True)
-    residual: bool, whether to use residual connection in the instance-level fusion layer. (Default: True)
-    attn_dim: int, the dimension of the semantic attention vector. (Default: 128)
-    batch_norm: bool, whether to use batch normalization layer in the MLP classifier. (Default: True)
+    tf_dict: dict[ntype/etype, int], initial node/edge feature sizes.
+    emb_ndict: dict[ntype, int], the numbers of initial node embeddings without initial node features.
+    emb_edict: dict[etype, int], the numbers of initial edge embeddings without initial edge features.
+    hid_dim: list[int], hidden size.
+    out_dim: int, output size.
+    num_layers: list[int], the number of layers.
+    target: str, target node type name.
+    metapath_info: dict[etype, list[list[ntype], list[etype]]], the node and edge type names for each metapath.
+    metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
+    activation: list[func], activation funtions.
+    dropout: list[float], dropout rate.
+    residual: bool, whether to use residual connections.
+    heads: list[int], number of heads for multi-head attention.
+    batch_norm: bool, whether uses the batch normalization in MLP.
+    loss_weight: float, the weight of margin loss.
     """
     def __init__(self,
                 tf_dict, 
@@ -363,14 +535,16 @@ class HETCAN(nn.Module):
 
         Parameters
         ----------
-        g: dgl.DGLHeteroGraph or List[MFG], the graph data.
-        h: dict[str, Tensor], the feature tensor of the target node type.
-        nfeat_dict: dict[str, Tensor], the feature tensors of different node types.
-        efeat_dict: dict[str, Tensor], the feature tensors of different edge types.
+        g: DGLHeteroGraph or List[MFG], the graph data.
+        h: dict[ntype, tensor], the features of the target node type.
+        nfeat_dict: dict[ntype, tensor], the initial node features.
+        efeat_dict: dict[etype, tensor], the initial edge features.
 
         Returns
         -------
-        out: Tensor, the output tensor.
+        out: tensor, the output tensor.
+        mean_m: tensor, the mean values of attention scores for multi-metapath neighbors.
+        mean_s: tensor, the mean values of attention scores for single-metapath neighbors.
         """
         mean_m_list = []
         mean_s_list = []
@@ -390,18 +564,16 @@ class HETCAN(nn.Module):
         """
         Description
         -----------
-        Train the GNN model with given dataloader.
+        Train the HetCAN model with given dataloader.
 
         Parameters
         ----------
-        dataloader: dgl.dataloading.NodeDataLoader, dataloader for batch-iterating over a set of training nodes, 
-        generating the list of message flow graphs (MFGs) as computation dependency of the said minibatch.
-        inputs_all: torch.Tensor or Dict[str, torch.Tensor], the features of all target type of nodes in the graph.
-        label: torch.Tensor or Dict[str, torch.Tensor], the labels of all target type of nodes in the graph.
-        optimizer: torch.optim.Optimizer, the optimizer for training.
-        criterion: torch.nn.Module, the loss function for training.
-        input_type: str, single or multiple.
-        device: torch.device or None, if None, use cpu training. (Default: None)
+        dataloader: dataLoader instance, dataloader for batch-iterating over a set of training nodes, generating the list of message flow graphs (MFGs) as computation dependency of the said minibatch.
+        inputs_all: dict[str, tensor], the node features of all target type in the graph.
+        label: tensor, the labels of all target type of nodes in the graph.
+        optimizer: optimizer, the optimizer for training.
+        criterion: nn.Module, the loss function for training.
+        device: device instance or None, if None, use cpu training. (Default: None)
         log: int, the number of batches to print the training log, if set to zero, no log prints. (Default: 0)
         **kwargs: other forward parameters of the model.
         """
@@ -442,21 +614,21 @@ class HETCAN(nn.Module):
         """
         Description
         -----------
-        Predict the GNN model with given dataloader.
+        Predict the HetCAN model with given dataloader.
 
         Parameters
         ----------
-        dataloader: dgl.dataloading.NodeDataLoader, dataloader for batch-iterating over a set of nodes, 
-        generating the list of message flow graphs (MFGs) as computation dependency of the said minibatch.
-        inputs_all: torch.Tensor or Dict[str, torch.Tensor], the features of all target type of nodes in the graph.
-        label: torch.Tensor or Dict[str, torch.Tensor], the labels of all target type of nodes in the graph.
-        criterion: torch.nn.Module, the loss function.
-        device: torch.device or None, if None, use cpu for inference. (Default: None)
+        dataloader: dataLoader instance, dataloader for batch-iterating over a set of training nodes, generating the list of message flow graphs (MFGs) as computation dependency of the said minibatch.
+        inputs_all: dict[str, tensor], the node features of all target type in the graph.
+        label: tensor, the labels of all target type of nodes in the graph.
+        criterion: nn.Module, the loss function.
+        device: device instance or None, if None, use cpu for inference. (Default: None)
         **kwargs: other forward parameters of the model.
 
         Returns
         -------
-        total_loss: float, average loss.
+        total_loss1: float, average classification loss.
+        total_loss2: float, average margin loss.
         y_prob: List[float] or List[int], positive probability or predicted labels of target nodes.
         """
         self.eval()
