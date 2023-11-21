@@ -4,25 +4,6 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(parent_dir)
 
-# def parse_args():
-#     import argparse
-#     parser = argparse.ArgumentParser(description="HetCAN Training")
-#     # model parameters
-#     parser.add_argument("--hidden", type=int, default=64, help="The embedding dimension")
-#     parser.add_argument("--dropout", type=float, default=0.5, help="Dropout ratio")
-#     parser.add_argument("--l2_norm", action="store_false", default=True, help="No L2 normalization")
-#     parser.add_argument("--batch_norm", action="store_false", default=True, help="No batch normalization")
-#     # training parameters
-#     parser.add_argument("--opt_name", type=str, default="Adam", choices=["Adam", "AdamW", "SGD"], help="Optimizer to use")
-#     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
-#     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay")
-#     parser.add_argument("--epoch", type=int, default=200, help="Training epochs")
-#     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
-#     parser.add_argument("--eval_metric", type=str, default="micro_f1", choices=["micro_f1", "macro_f1", "auc", "ks"], help="Evaluation metric")
-#     parser.add_argument("--cuda", action="store_true", default=False, help="GPU training")
-#     args = parser.parse_args()
-#     return args
-
 if __name__ == "__main__":
     import torch
     import torch.nn as nn
@@ -54,6 +35,7 @@ if __name__ == "__main__":
         "eval_metric": "micro_f1",
         "epoch": 300,
         "early_stopping": 30,
+        "device": "cuda"
     }
     # read the graph dataset
     filepath = os.path.join(os.path.dirname(__file__), "data/DBLP/")
@@ -90,6 +72,12 @@ if __name__ == "__main__":
             batch_norm=params["batch_norm"],
             loss_weight=params["loss_weight"]
         )
+    # device
+    if params["device"]:
+        device = torch.device(params["device"])
+        model = model.to(device)
+    else:
+        device = None
     # loss function
     criterion = [nn.CrossEntropyLoss(), nn.MarginRankingLoss(margin=params["margin"])]
     # set the optimizer parameters
@@ -104,8 +92,9 @@ if __name__ == "__main__":
         opt = opt,
         criterion = criterion,
         sampling_params = sampling_params,
-        batch_size = [params["batch_size"], params["batch_size"]]
+        batch_size = [params["batch_size"], params["batch_size"]],
+        device=device
     )
-    state, result = trainer.train(epochs=params["epoch"], early_stopping=params["early_stopping"], eval_metric=params["eval_metric"])
+    state, result = trainer.train(epochs=params["epoch"], early_stopping=params["early_stopping"], eval_metric=params["eval_metric"], device=device)
     # save the model
     # torch.save(state, "hetcan.pth")

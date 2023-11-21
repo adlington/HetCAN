@@ -138,7 +138,7 @@ class HetCANSampler(BlockSampler):
                 for inst_etype in self.metapaths:
                     inst_u, inst_v, inst_eids = g.edge_ids(u=edges[0], v=edges[1], return_uv=True, etype=inst_etype)
                     eids = frontier.edge_ids(u=inst_u, v=inst_v, return_uv=True, etype=etype)[-1]
-                    assert len(eids) == len(inst_eids)
+                    assert len(eids) == len(inst_eids), f"metapath edge size {len(eids)}, metapath instance edge size {len(inst_eids)}"
                     sample_inst_eids = sample_instances(inst_eids, eids, fanout[meta_etype])
                     sample_inst_edges[inst_etype].append(sample_inst_eids)
             # drop duplicated sampling edges

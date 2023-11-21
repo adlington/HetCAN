@@ -25,9 +25,9 @@ def groupby_mean(values, labels, max_len):
     counts: tensor, the number of metapth instances for each pair of metapath neighbors.
     """
     label = labels.view((labels.shape[0],)+(1,)*(len(values.shape)-1))
-    counts = torch.zeros((max_len,)+(1,)*(len(values.shape)-1), dtype=torch.float32)
-    sums = torch.zeros((max_len,)+values.shape[1:], dtype=torch.float32)
-    counts.scatter_add_(0, label, torch.ones_like(label, dtype=torch.float32))
+    counts = torch.zeros((max_len,)+(1,)*(len(values.shape)-1), dtype=torch.float32).to(values.device)
+    sums = torch.zeros((max_len,)+values.shape[1:], dtype=torch.float32).to(values.device)
+    counts.scatter_add_(0, label, torch.ones_like(label, dtype=torch.float32).to(label.device))
     sums.scatter_add_(0, label.expand((-1,)+values.shape[1:]), values)
     div = torch.where(counts>0, counts, 1)
     means = sums/div
@@ -299,7 +299,8 @@ class CoattnConv(nn.Module):
                     j = j + 1
             else:
                 # edge type embedding
-                mid_efeat = efeat_dict[mp_etype](torch.LongTensor([0]))  # (1, num_heads, out_dim)
+                ind = torch.LongTensor([0]).to(device=efeat_dict[mp_etype].weight.device)
+                mid_efeat = efeat_dict[mp_etype](ind)  # (1, num_heads, out_dim)
                 mid_efeat = mid_efeat.repeat(g.num_edges(etype=etype), 1)  # (num_edge, num_heads, out_dim)
             mid_efeat_list.append(mid_efeat)
 
@@ -350,10 +351,19 @@ class CoattnConv(nn.Module):
         e: tensor, the edge embedding sequence.
         """
         # calculate the metapath context embeddings
-        u0, v0 = g.edges(etype=inst_etype)
-        u1, v1, eids = g.edge_ids(u=u0, v=v0, return_uv=True, etype=etype)
-        inst_eids = g.edge_ids(u=u1, v=v1, return_uv=True, etype=inst_etype)[-1]
-        has_edge = torch.isin(torch.arange(u0.shape[0], dtype=torch.long), inst_eids)
+        if g.device == torch.device("cpu"):
+            u0, v0 = g.edges(etype=inst_etype)
+            u1, v1, eids = g.edge_ids(u=u0, v=v0, return_uv=True, etype=etype)
+            inst_eids = g.edge_ids(u=u1, v=v1, return_uv=True, etype=inst_etype)[-1]
+            has_edge = torch.isin(torch.arange(u0.shape[0], dtype=torch.long), inst_eids)
+        else:
+            g1 = g.cpu()
+            u0, v0 = g1.edges(etype=inst_etype)
+            u1, v1, eids = g1.edge_ids(u=u0, v=v0, return_uv=True, etype=etype)
+            inst_eids = g1.edge_ids(u=u1, v=v1, return_uv=True, etype=inst_etype)[-1]
+            has_edge = torch.isin(torch.arange(u0.shape[0], dtype=torch.long), inst_eids)
+            eids = eids.to(g.device)
+            has_edge = has_edge.to(g.device)
         assert len(eids) == len(h[has_edge])
         h_mean, counts = groupby_mean(h[has_edge], eids, g.num_edges(etype=etype))  # (num_edge, num_heads, out_dim),  (num_edge, 1, 1)
         mp_ind = counts>0  # (num_edge, 1, 1)
@@ -589,7 +599,8 @@ class HETCAN(nn.Module):
                 output_nodes = output_nodes[self.target]
             y = label[output_nodes]
             if device is not None:
-                inputs = {k: v.to(device) for k, v in inputs.items()}
+                # inputs = {k: v.to(device) for k, v in inputs.items()}
+                inputs = inputs.to(device)
                 y = y.to(device)
                 blocks = [block.to(device) for block in blocks]
             logits, mean_m, mean_s = self.forward(blocks, inputs, **kwargs)
@@ -645,7 +656,8 @@ class HETCAN(nn.Module):
                     output_nodes = output_nodes[self.target]
                 y = label[output_nodes]
                 if device is not None:
-                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                    # inputs = {k: v.to(device) for k, v in inputs.items()}
+                    inputs = inputs.to(device)
                     y = y.to(device)
                     blocks = [block.to(device) for block in blocks]
                 logits, mean_m, mean_s = self.forward(blocks, inputs, **kwargs)

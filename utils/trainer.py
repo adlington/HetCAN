@@ -146,6 +146,8 @@ class HetCANTrainer:
         else:
             raise RuntimeError("No mode named {} is available!".format(mode))
 
+        if self.device:
+            nodes = nodes.to(self.device)
         sampler = self.get_sampler()
         nodes1 = {self.model.target:nodes}
 
