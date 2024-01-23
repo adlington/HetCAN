@@ -16,7 +16,7 @@ Source code for paper "Collaborative Metapath Enhanced Corporate Default Risk As
 
 * Create a new directory `data/` under the project path:
 
-* Download DBLP data from [here](https://cloud.tsinghua.edu.cn/d/2d965d2fc2ee41d09def/files/?p=%2FDBLP.zip&dl=1) and extract the zip file to `data/`, where the dataset has already been preprocessed in [Heterogeneous Graph Benchmark(HGB)](https://github.com/THUDM/HGB)
+* Download DBLP data from [here](https://drive.google.com/drive/folders/10-pf2ADCjq_kpJKFHHLHxr_czNNCJ3aX?usp=sharing) and extract the zip file to `data/`, where the dataset has already been preprocessed in [Heterogeneous Graph Benchmark(HGB)](https://github.com/THUDM/HGB)
 ```
 cd data/
 unzip DBLP.zip
