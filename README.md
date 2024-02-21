@@ -2,7 +2,7 @@ Introduction
 ------
 Code for paper "Collaborative Metapath Enhanced Corporate Default Risk Assessment on Heterogeneous Graph", which is accepted by WWW 2024.
 
-HetCAN is developped for small company default risk assessment based on heterogeneous graph and well-designed co-attention mechanism. It is designed for pre-loan services for micro and small businesses and real-world banking data.
+HetCAN is developped for small company default risk assessment based on heterogeneous graph and collaborative metapath. It is designed for pre-loan services for small businesses and real-world banking data.
 
 Main Contact: 
 
