@@ -43,4 +43,4 @@ unzip DBLP.zip
 python main.py
 ```
 
-* Notice: Real-world financial datasets are from an anonymous bank under an NDA agreement, and thus we do not disclose more information of corporate users used in the papar. Here, the DBLP data are provided for running the model.
+* Notice: Real-world financial datasets are from an anonymous bank for confidentiality reasons, and thus we do not disclose more information of corporate users used in the paper. Here, the DBLP data are provided for running the model.
