@@ -124,10 +124,8 @@ class CoattnConv(nn.Module):
         nn.init.xavier_normal_(self.delta, gain=gain)
         for etype, encoder in self.encoder.items():
             encoder.reset_parameters()
-
         for etype, layer in self.fc_src.items():
             layer.reset_parameters()
-
         for etype, layer in self.fc_edge.items():
             layer.reset_parameters()
 
@@ -242,7 +240,7 @@ class CoattnConv(nn.Module):
                 g.update_all(message_func=lambda x: {"msg_sc": (x.data["prob"]==1).to(torch.float32)}, reduce_func=fn.sum("msg_sc", "s_cnt"), etype=etype)
                 mean_m = g.dstdata["m_sum"]/torch.where(g.dstdata["m_cnt"]>0, g.dstdata["m_cnt"], 1)  # (num_dst_node,)
                 mean_s = g.dstdata["s_sum"]/torch.where(g.dstdata["s_cnt"]>0, g.dstdata["s_cnt"], 1)  # (num_dst_node,)
-                # ignore results wihout both types
+                # ignore results without both types
                 ind = (g.dstdata["m_cnt"]>0)*(g.dstdata["s_cnt"]>0)
                 mean_m_list.append(mean_m[ind])
                 mean_s_list.append(mean_s[ind])
@@ -390,14 +388,14 @@ class HETCANLayer(nn.Module):
     emb_edict: dict[etype, int], the numbers of initial edge embeddings without initial edge features.
     hid_dim: int, hidden size.
     out_dim: int, output size.
-    target: str, target node type name.
     metapath_info: dict[etype, list[list[ntype], list[etype]]], the node and edge type names for each metapath.
     metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
+    target: str, target node type name.
     activation: list[func], activation funtions.
     feat_dropout: float, feature dropout rate.
     attn_dropout: float, attention dropout rate.
-    residual: bool, whether to use residual connections.
     num_heads: int, number of heads for multi-head attention.
+    residual: bool, whether to use residual connections.
     is_first: bool, whether is the first layer.
     is_last: bool, whether is the last layer.
     """
@@ -479,13 +477,13 @@ class HETCAN(nn.Module):
     hid_dim: list[int], hidden size.
     out_dim: int, output size.
     num_layers: list[int], the number of layers.
-    target: str, target node type name.
     metapath_info: dict[etype, list[list[ntype], list[etype]]], the node and edge type names for each metapath.
     metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
+    target: str, target node type name.
+    heads: list[int], number of heads for multi-head attention.
     activation: list[func], activation funtions.
     dropout: list[float], dropout rate.
     residual: bool, whether to use residual connections.
-    heads: list[int], number of heads for multi-head attention.
     batch_norm: bool, whether uses the batch normalization in MLP.
     loss_weight: float, the weight of margin loss.
     """
@@ -582,7 +580,7 @@ class HETCAN(nn.Module):
         inputs_all: dict[str, tensor], the node features of all target type in the graph.
         label: tensor, the labels of all target type of nodes in the graph.
         optimizer: optimizer, the optimizer for training.
-        criterion: nn.Module, the loss function for training.
+        criterion: list[nn.Module], the loss function for training.
         device: device instance or None, if None, use cpu training. (Default: None)
         log: int, the number of batches to print the training log, if set to zero, no log prints. (Default: 0)
         **kwargs: other forward parameters of the model.
@@ -632,7 +630,7 @@ class HETCAN(nn.Module):
         dataloader: dataLoader instance, dataloader for batch-iterating over a set of training nodes, generating the list of message flow graphs (MFGs) as computation dependency of the said minibatch.
         inputs_all: dict[str, tensor], the node features of all target type in the graph.
         label: tensor, the labels of all target type of nodes in the graph.
-        criterion: nn.Module, the loss function.
+        criterion: list[nn.Module], the loss function.
         device: device instance or None, if None, use cpu for inference. (Default: None)
         **kwargs: other forward parameters of the model.
 

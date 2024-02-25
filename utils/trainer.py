@@ -77,11 +77,10 @@ class HetCANTrainer:
     metapath_dict: dict, the virtual edge names between metapath-based neighbors (key) and for metapath instances (value).
     model: model instance, the model for training.
     opt: dict[str, any], the parameters of the optimizer.
-    criterion: nn.Module, loss function.
+    criterion: list[nn.Module], loss functions.
     sampling_params: dict[str, any], the parameters of neighbor sampler.
     batch_size: list[int], the batch size for training and evaluation. (Default: [128,128])
     lr_decay: dict[str, any] or None, the parameters of the lr_scheduler, if None, do not use lr decay. (Default: None)
-    multi_nodes: bool, whether is the heterogeneous graph. (Default: True)
     device: device instance or None, if None, use cpu training. (Default: None)
     """
     def __init__(self, dataset, metapath_dict, model, opt, criterion, sampling_params, batch_size=[128, 128], lr_decay=None, device=None):
@@ -108,7 +107,7 @@ class HetCANTrainer:
         -------
         sampler: BlockSampler, the sampler instance.
         """
-        # sample certain metapath_based neighbors for each layer
+        # sample certain metapath-based neighbors for each layer
         sampling_dict = {}
         for meta_etype in self.dataset.g.canonical_etypes:
             if meta_etype[1] in self.metapath_dict.keys():

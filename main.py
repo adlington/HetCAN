@@ -14,7 +14,7 @@ if __name__ == "__main__":
     from HetCAN.utils.trainer import HetCANTrainer
     # set the parameters
     params = {
-        # model
+        # model parameters
         "hidden": [128, 128],
         "activation": [torch.tanh, F.relu],
         "dropout": [0.5, 0.5, 0.5],
@@ -24,10 +24,10 @@ if __name__ == "__main__":
         "batch_norm": True,
         "loss_weight": 0.5,
         "margin": 1,
-        # sampling
+        # sampling parameters
         "neighbor_sampling": 10,
-        "coef": 5,
-        # training
+        # "coef": 5,
+        # training parameters
         "batch_size": 32,
         "opt_name": "Adam",
         "lr": 0.001,
@@ -40,20 +40,22 @@ if __name__ == "__main__":
     # read the graph dataset
     filepath = os.path.join(os.path.dirname(__file__), "data/DBLP/")
     dataset = DBLPHeteroGraph(root=filepath)
-    metapath_sis = {"apa_i": [("author", "ap", "paper"), ("paper", "pa", "author")], 
+    # edges for metapath context
+    metapath_ctx = {"apa_i": [("author", "ap", "paper"), ("paper", "pa", "author")], 
                 "apvpa_i": [("author", "ap", "paper"), ("paper", "pv", "venue"), ("venue", "vp", "paper"), ("paper", "pa", "author")],
                 "aptpa_i": [("author", "ap", "paper"), ("paper", "pt", "term"), ("term", "tp", "paper"), ("paper", "pa", "author")]}
-    metapath_mp = {"apa": [("author", "ap", "paper"), ("paper", "pa", "author")], 
+    # edges for metapath instances
+    metapath_inst = {"apa": [("author", "ap", "paper"), ("paper", "pa", "author")], 
                 "apvpa": [("author", "ap", "paper"), ("paper", "pv", "venue"), ("venue", "vp", "paper"), ("paper", "pa", "author")],
                 "aptpa": [("author", "ap", "paper"), ("paper", "pt", "term"), ("term", "tp", "paper"), ("paper", "pa", "author")]}
-    dataset.transform(metapath_sis, metapath_mp, coef=params["coef"])
-    dataset.g = dgl.edge_type_subgraph(dataset.g, etypes=list(metapath_sis.keys())+list(metapath_mp.keys()))
+    dataset.transform(metapath_ctx, metapath_inst)
+    dataset.g = dgl.edge_type_subgraph(dataset.g, etypes=list(metapath_ctx.keys())+list(metapath_inst.keys()))
     # create the model
     metapath_info = {
         "apa": [["paper"], [("author", "ap", "paper"), ("paper", "pa", "author")]],
         "apvpa": [["paper", "venue", "paper"],  [("author", "ap", "paper"), ("paper", "pv", "venue"), ("venue", "vp", "paper"), ("paper", "pa", "author")]],
         "aptpa":[["paper", "term", "paper"], [("author", "ap", "paper"), ("paper", "pt", "term"), ("term", "tp", "paper"), ("paper", "pa", "author")]],
-    }
+    }  # the node and edge types along metapaths
     metapath_dict = {"apa_i": "apa", "apvpa_i": "apvpa", "aptpa_i": "aptpa"}
     model = HETCAN(
             tf_dict=dataset.tf_dict, 

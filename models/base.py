@@ -103,6 +103,7 @@ class RSNEncoder(nn.Module):
             self.rnn = nn.LSTMCell(in_dim, out_dim)
         self.w1 = nn.Linear(out_dim, out_dim, bias=False)
         self.w2 = nn.Linear(out_dim, out_dim, bias=False)
+        self.reset_parameters()
 
     def reset_parameters(self):
         """
@@ -155,6 +156,7 @@ class SemanticFusion(nn.Module):
             nn.Tanh(),
             nn.Linear(hid_dim, 1, bias=False)
         )
+        self.reset_parameters()
 
     def reset_parameters(self):
         """
@@ -181,12 +183,12 @@ class SemanticFusion(nn.Module):
         out: tensor, the output feature tensor.
         """
         if self.batch:
-            w = self.project(h).mean(0)                    # (num_metapath, 1)
+            w = self.project(h).mean(0)             # (num_metapath, 1)
             w = F.softmax(w, dim=0)                 # (num_metapath, 1)
-            w = w.expand((h.shape[0],) + w.shape)  # (batch_size, num_metapath, 1)
+            w = w.expand((h.shape[0],) + w.shape)   # (batch_size, num_metapath, 1)
         else:
-            w = self.project(h)                    # (batch_size, num_metapath, 1)
+            w = self.project(h)                     # (batch_size, num_metapath, 1)
             w = F.softmax(w, dim=1)                 # (batch_size, num_metapath, 1)
-        out = (w * h).sum(1)                       # (batch_size, in_dim)
+        out = (w * h).sum(1)                        # (batch_size, in_dim)
         
         return out

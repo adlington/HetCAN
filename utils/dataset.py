@@ -104,6 +104,7 @@ class DBLPHeteroGraph:
                 e_tuple = (self.node_info[edict["start"]], s[0][0] + s[1][0], self.node_info[edict["end"]])
                 data_dict[e_tuple] = (torch.LongTensor(edge_tmp.src_idx.values), torch.LongTensor(edge_tmp.dst_idx.values))
             
+            # create the heterogeneous graph
             self.g = dgl.heterograph(data_dict, num_nodes_dict=self.num_nodes_dict)
 
             # train test split
@@ -148,7 +149,7 @@ class DBLPHeteroGraph:
             else:
                 self.emb_edict[etype] = 1
 
-    def transform(self, metapath_sis, metapath_mp, coef=5):
+    def transform(self, metapath_ctx, metapath_inst, coef=5):
         """
         Description
         -----------
@@ -156,15 +157,15 @@ class DBLPHeteroGraph:
 
         Parameters
         ----------
-        metapath_sis: dict[str, list], the keys represent the names of virtual edges between the metapath-based neighbors and the values represent the canonical edge types of metapaths.
-        metapath_mp: dict[str, list], the keys represent the names of virtual edges along each metapath instance and the values represent the canonical edge types of metapaths.
+        metapath_ctx: dict[str, list], the keys represent the names of virtual edges between the metapath-based neighbors and the values represent the canonical edge types of metapaths.
+        metapath_inst: dict[str, list], the keys represent the names of virtual edges along each metapath instance and the values represent the canonical edge types of metapaths.
         coef: int, the coefficient for multi-metapath neighbors.
         """
         transformed_graph_file = osp.join(self.processed_dir, "dblp_mpgraph.bin")
         if osp.exists(transformed_graph_file):
             self.load(transformed_graph_file)
         else:
-            transform = Compose([AddSISProb(metapath_sis, coef=coef), MPGraph(metapath_mp)])
+            transform = Compose([AddMetapathContextEdge(metapath_ctx, coef=coef), AddMetapathInstanceEdge(metapath_inst)])
             self.g = transform(self.g)
             self.save(transformed_graph_file)
 
@@ -211,11 +212,11 @@ class DBLPHeteroGraph:
             self.nfeat = info["nfeat"]
             self.efeat = info["efeat"]
 
-class AddSISProb(BaseTransform):
+class AddMetapathContextEdge(BaseTransform):
     """
     Description
     -----------
-    Add new edges to an input graph based on given metapaths.
+    Add new edges for metapath context to an input graph based on given metapaths.
 
     Parameters
     ----------
@@ -280,7 +281,7 @@ class AddSISProb(BaseTransform):
 
         return new_g
 
-class MPGraph(BaseTransform):
+class AddMetapathInstanceEdge(BaseTransform):
     """
     Description
     -----------
